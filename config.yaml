@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────
+# Daily Learn Bot — Configuration
+# Edit this file to customize your daily recommendations.
+# ─────────────────────────────────────────────────
+
+# Topics rotate daily. Add, remove, or reorder as you like.
+categories:
+  - behavioral economics or decision science
+  - systems thinking or complex adaptive systems
+  - longevity, healthspan, or performance optimization
+  - philosophy of mind or consciousness
+  - negotiation, persuasion, or deal structure
+  - geopolitics or international relations
+  - AI, machine learning, or emerging tech
+  - "history (a specific event, person, or era that changed everything)"
+  - neuroscience or how the brain works
+  - business strategy, moats, or competitive dynamics
+  - space exploration or astronomy
+  - psychology of motivation, habits, or identity
+  - engineering or how things are built
+  - game theory or strategic decision-making
+  - physics or how the universe works
+  - personal finance, investing, or wealth building
+  - environmental science, energy, or climate
+  - design thinking or problem-solving frameworks
+  - sociology, culture, or how societies evolve
+  - investigative journalism or documentary-style deep dives
+
+# Video length range (minutes)
+min_duration: 10
+max_duration: 25
+
+# Preferred YouTube channels (used as examples in the prompt, not a hard filter)
+preferred_channels:
+  - Veritasium
+  - Kurzgesagt
+  - Wendover Productions
+  - 3Blue1Brown
+  - Half as Interesting
+  - ColdFusion
+  - Johnny Harris
+  - Ali Abdaal
+  - Polymatter
+  - Real Engineering
+  - Tom Scott
+  - MKBHD
+  - Lenny's Podcast
+  - How Money Works
+  - Economics Explained
+  - Crash Course
+
+# Email branding
+email_subject_prefix: "🎓 Daily Learn"

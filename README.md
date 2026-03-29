@@ -66,17 +66,25 @@ Add these 4 secrets:
 
 ## Customization
 
+All preferences live in `config.yaml` — no need to touch the Python code.
+
+### Change the topics
+Edit the `categories` list. Add, remove, or reorder however you want.
+
+### Change the video length
+Set `min_duration` and `max_duration` to your preferred range (in minutes).
+
+### Change preferred channels
+Edit the `preferred_channels` list. These are used as examples in the prompt (not a hard filter).
+
+### Change the email branding
+Set `email_subject_prefix` to whatever you'd like (e.g. `"📚 Daily Watch"`).
+
 ### Change the schedule
 Edit `.github/workflows/daily_learn.yml` — the cron is in UTC:
 - `"0 18 * * 1-5"` = 12:00 PM Mountain (UTC-6)
 - `"0 17 * * 1-5"` = 12:00 PM Central (UTC-5)
 - `"0 16 * * 1-5"` = 12:00 PM Eastern (UTC-4, during daylight saving)
-
-### Change the topics
-Edit the `CATEGORIES` list in `daily_video.py`. Add, remove, or reorder however you want.
-
-### Change the video length
-Edit the prompt in `get_video_recommendation()` — change "15 and 30 minutes" to whatever range you prefer.
 
 ---
 
