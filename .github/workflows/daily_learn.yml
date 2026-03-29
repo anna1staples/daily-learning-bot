@@ -1,0 +1,33 @@
+name: Daily Learn Bot
+
+on:
+  schedule:
+    # Runs at 12:00 PM Mountain Time (6:00 PM UTC) Monday-Friday
+    # Cron doesn't support day-of-week ranges natively in GH Actions,
+    # so we run M-F using 1-5
+    - cron: "0 18 * * 1-5"
+  workflow_dispatch: # Allows manual trigger for testing
+
+jobs:
+  send-daily-video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run daily video bot
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: python daily_video.py
