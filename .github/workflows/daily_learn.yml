@@ -2,8 +2,8 @@ name: Daily Learn Bot
 
 on:
   schedule:
-    # Runs at 11:00 AM Mountain Time (5:00 PM UTC) Monday-Friday
-    - cron: "0 17 * * 1-5"
+    # Target ~11 AM Mountain Time — set early to account for GitHub Actions delays
+    - cron: "0 16 * * 1-5"
   workflow_dispatch: # Allows manual trigger for testing
 
 jobs:
