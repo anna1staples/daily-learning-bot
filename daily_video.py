@@ -26,6 +26,7 @@ CATEGORIES = config["categories"]
 MIN_DURATION = config.get("min_duration", 10)
 MAX_DURATION = config.get("max_duration", 25)
 PREFERRED_CHANNELS = config.get("preferred_channels", [])
+VIDEOS_PER_EMAIL = config.get("videos_per_email", 1)
 EMAIL_SUBJECT_PREFIX = config.get("email_subject_prefix", "🎓 Daily Learn")
 
 # ── Secrets from environment variables ──
@@ -35,11 +36,21 @@ GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL", GMAIL_ADDRESS)
 
 
-def get_todays_category() -> str:
-    """Pick a category based on the day of year so it rotates predictably."""
+def get_todays_categories(count: int = 1) -> list[str]:
+    """Pick categories based on the day of year so they rotate predictably."""
     day_of_year = datetime.now().timetuple().tm_yday
-    idx = day_of_year % len(CATEGORIES)
-    return CATEGORIES[idx]
+    n = len(CATEGORIES)
+    indices = [(day_of_year + i * (n // 2)) % n for i in range(count)]
+
+    # Deduplicate in case count is large relative to category list
+    seen = set()
+    unique = []
+    for idx in indices:
+        while idx in seen:
+            idx = (idx + 1) % n
+        seen.add(idx)
+        unique.append(CATEGORIES[idx])
+    return unique
 
 
 MAX_RETRIES = 3
@@ -100,17 +111,25 @@ Respond in JSON only. No markdown, no backticks, no preamble. Just the JSON obje
     return json.loads(response_text)
 
 
-def send_email(video: dict) -> None:
-    """Send the recommendation as a nicely formatted email."""
+def send_email(videos: list[dict]) -> None:
+    """Send the recommendations as a nicely formatted email."""
     today = datetime.now().strftime("%A, %B %d")
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{EMAIL_SUBJECT_PREFIX}: {video['title']}"
+    if len(videos) == 1:
+        msg["Subject"] = f"{EMAIL_SUBJECT_PREFIX}: {videos[0]['title']}"
+    else:
+        msg["Subject"] = f"{EMAIL_SUBJECT_PREFIX}: {len(videos)} picks for today"
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = RECIPIENT_EMAIL
 
+    labels = "ABCDEFGHIJ"
+
     # Plain text version
-    plain = f"""Daily Learn — {today}
+    plain_parts = [f"{EMAIL_SUBJECT_PREFIX} — {today}\n"]
+    for i, video in enumerate(videos):
+        label = f"Option {labels[i]}" if len(videos) > 1 else ""
+        plain_parts.append(f"""{f'── {label} ──' if label else ''}
 Category: {video['category']}
 
 {video['title']}
@@ -121,17 +140,29 @@ by {video['channel']} ({video['duration_minutes']} min)
 {video['why_watch']}
 
 Watch: {video['url']}
-"""
+""")
+    plain = "\n".join(plain_parts)
 
     # HTML version
+    video_blocks = []
+    for i, video in enumerate(videos):
+        label = labels[i] if len(videos) > 1 else ""
+        label_html = f'<p style="color: #FF0000; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px 0;">Option {label}</p>' if label else ""
+        divider = '<hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">' if i > 0 else ""
+        video_blocks.append(f"""
+        {divider}
+        {label_html}
+        <p style="color: #888; font-size: 13px; margin-bottom: 4px;">{video['category']}</p>
+        <h2 style="font-size: 20px; margin: 0 0 8px 0; color: #1a1a1a;">{video['title']}</h2>
+        <p style="color: #555; font-size: 14px; margin: 0 0 16px 0;">by {video['channel']} · {video['duration_minutes']} min</p>
+        <p style="font-size: 15px; color: #333; line-height: 1.5; margin-bottom: 8px;"><strong>{video['one_liner']}</strong></p>
+        <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 20px;">{video['why_watch']}</p>
+        <a href="{video['url']}" style="display: inline-block; background: #FF0000; color: white; text-decoration: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px;">▶ Watch Now</a>""")
+
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
-        <p style="color: #888; font-size: 13px; margin-bottom: 4px;">{today} · {video['category']}</p>
-        <h1 style="font-size: 22px; margin: 0 0 8px 0; color: #1a1a1a;">{video['title']}</h1>
-        <p style="color: #555; font-size: 14px; margin: 0 0 16px 0;">by {video['channel']} · {video['duration_minutes']} min</p>
-        <p style="font-size: 16px; color: #333; line-height: 1.5; margin-bottom: 12px;"><strong>{video['one_liner']}</strong></p>
-        <p style="font-size: 15px; color: #444; line-height: 1.6; margin-bottom: 24px;">{video['why_watch']}</p>
-        <a href="{video['url']}" style="display: inline-block; background: #FF0000; color: white; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 15px;">▶ Watch Now</a>
+        <p style="color: #888; font-size: 13px; margin-bottom: 16px;">{today}</p>
+        {"".join(video_blocks)}
         <hr style="border: none; border-top: 1px solid #eee; margin-top: 32px;">
         <p style="color: #aaa; font-size: 12px;">{EMAIL_SUBJECT_PREFIX} Bot · Powered by Claude</p>
     </div>
@@ -145,32 +176,39 @@ Watch: {video['url']}
         server.sendmail(GMAIL_ADDRESS, RECIPIENT_EMAIL, msg.as_string())
 
 
-def main():
-    category = get_todays_category()
-    print(f"📚 Today's category: {category}")
-
-    excluded_urls = []
-    video = None
-
+def get_verified_video(category: str, excluded_urls: list[str]) -> dict:
+    """Fetch a video for a category, retrying until one is verified as available."""
     for attempt in range(1, MAX_RETRIES + 1):
         candidate = get_video_recommendation(category, excluded_urls or None)
-        print(f"🎬 Attempt {attempt}: {candidate['title']}")
-        print(f"🔗 {candidate['url']}")
+        print(f"  Attempt {attempt}: {candidate['title']}")
+        print(f"  🔗 {candidate['url']}")
 
         if is_video_available(candidate["url"]):
-            print("✅ Video verified as available")
-            video = candidate
-            break
+            print("  ✅ Video verified as available")
+            excluded_urls.append(candidate["url"])
+            return candidate
 
-        print("⚠️  Video unavailable, retrying...")
+        print("  ⚠️  Video unavailable, retrying...")
         excluded_urls.append(candidate["url"])
 
-    if video is None:
-        print("❌ Could not find an available video after all retries — sending best candidate")
-        video = candidate
+    print("  ❌ Could not verify — using last candidate")
+    return candidate
 
-    send_email(video)
-    print(f"✅ Email sent to {RECIPIENT_EMAIL}")
+
+def main():
+    categories = get_todays_categories(VIDEOS_PER_EMAIL)
+    print(f"📚 Today's categories: {', '.join(categories)}")
+
+    all_excluded_urls = []
+    videos = []
+
+    for i, category in enumerate(categories):
+        print(f"\n🎬 Video {i + 1} — {category}")
+        video = get_verified_video(category, all_excluded_urls)
+        videos.append(video)
+
+    send_email(videos)
+    print(f"\n✅ Email sent to {RECIPIENT_EMAIL} with {len(videos)} picks")
 
 
 if __name__ == "__main__":

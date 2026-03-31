@@ -49,5 +49,8 @@ preferred_channels:
   - Economics Explained
   - Crash Course
 
+# Number of video options per email
+videos_per_email: 2
+
 # Email branding
 email_subject_prefix: "🎓 Daily Learn"
