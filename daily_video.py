@@ -7,6 +7,8 @@ then emails the recommendation via Gmail SMTP.
 import os
 import json
 import smtplib
+import urllib.request
+import urllib.error
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -40,11 +42,32 @@ def get_todays_category() -> str:
     return CATEGORIES[idx]
 
 
-def get_video_recommendation(category: str) -> dict:
+MAX_RETRIES = 3
+
+
+def is_video_available(url: str) -> bool:
+    """Check if a YouTube video is available using the oEmbed API."""
+    oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
+    try:
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "DailyLearnBot/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return False
+
+
+def get_video_recommendation(category: str, excluded_urls: list[str] | None = None) -> dict:
     """Ask Claude to recommend a specific YouTube video."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     channels_str = ", ".join(PREFERRED_CHANNELS)
+
+    exclusion_note = ""
+    if excluded_urls:
+        exclusion_note = (
+            "\n\nIMPORTANT: The following URLs were already suggested but are unavailable. "
+            f"Do NOT recommend any of these:\n" + "\n".join(f"- {u}" for u in excluded_urls)
+        )
 
     prompt = f"""You are a curator for a daily learning habit. Today's category is: {category}
 
@@ -54,7 +77,7 @@ Recommend ONE specific YouTube video that:
 - Teaches something genuinely interesting that a curious person would enjoy — not limited to any specific field
 - Leaves the viewer more educated about the world, teaches a practical skill, or provides genuine inspiration
 - Comes from a reputable channel (think: {channels_str}, etc. — but not limited to these)
-
+{exclusion_note}
 Respond in JSON only. No markdown, no backticks, no preamble. Just the JSON object:
 {{
     "title": "Exact video title",
@@ -126,9 +149,25 @@ def main():
     category = get_todays_category()
     print(f"📚 Today's category: {category}")
 
-    video = get_video_recommendation(category)
-    print(f"🎬 Recommended: {video['title']} ({video['duration_minutes']} min)")
-    print(f"🔗 {video['url']}")
+    excluded_urls = []
+    video = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        candidate = get_video_recommendation(category, excluded_urls or None)
+        print(f"🎬 Attempt {attempt}: {candidate['title']}")
+        print(f"🔗 {candidate['url']}")
+
+        if is_video_available(candidate["url"]):
+            print("✅ Video verified as available")
+            video = candidate
+            break
+
+        print("⚠️  Video unavailable, retrying...")
+        excluded_urls.append(candidate["url"])
+
+    if video is None:
+        print("❌ Could not find an available video after all retries — sending best candidate")
+        video = candidate
 
     send_email(video)
     print(f"✅ Email sent to {RECIPIENT_EMAIL}")
