@@ -56,15 +56,58 @@ def get_todays_categories(count: int = 1) -> list[str]:
 MAX_RETRIES = 3
 
 
-def is_video_available(url: str) -> bool:
-    """Check if a YouTube video is available using the oEmbed API."""
+def fetch_video_metadata(url: str) -> dict | None:
+    """Fetch real video metadata from YouTube's oEmbed API.
+
+    Returns {"title": ..., "channel": ...} on success, or None if unavailable.
+    """
     oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
     try:
         req = urllib.request.Request(oembed_url, headers={"User-Agent": "DailyLearnBot/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            if resp.status != 200:
+                return None
+            data = json.loads(resp.read().decode())
+            return {"title": data.get("title", ""), "channel": data.get("author_name", "")}
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return None
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, strip punctuation/whitespace for fuzzy title comparison."""
+    return "".join(c for c in text.lower() if c.isalnum() or c == " ").strip()
+
+
+def _titles_match(claude_title: str, youtube_title: str) -> bool:
+    a, b = _normalize(claude_title), _normalize(youtube_title)
+    if not a or not b:
         return False
+    return a in b or b in a
+
+
+def regenerate_description(real_title: str, channel: str, category: str) -> dict:
+    """Ask Claude for a one_liner and why_watch based on the real video title."""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    prompt = f"""Given this real YouTube video, write a brief description for a recommendation email.
+
+Video title: {real_title}
+Channel: {channel}
+Category: {category}
+
+Respond in JSON only. No markdown, no backticks, no preamble. Just the JSON object:
+{{
+    "one_liner": "One sentence on what you'll learn",
+    "why_watch": "2-3 sentences on why this will leave you more knowledgeable, skilled, or inspired"
+}}"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = message.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+    return json.loads(text)
 
 
 def get_video_recommendation(category: str, excluded_urls: list[str] | None = None) -> dict:
@@ -177,14 +220,31 @@ Watch: {video['url']}
 
 
 def get_verified_video(category: str, excluded_urls: list[str]) -> dict:
-    """Fetch a video for a category, retrying until one is verified as available."""
+    """Fetch a video for a category, retrying until one is verified as available.
+
+    After verification, overwrites title/channel with real YouTube metadata
+    and regenerates descriptions if the title doesn't match what Claude claimed.
+    """
     for attempt in range(1, MAX_RETRIES + 1):
         candidate = get_video_recommendation(category, excluded_urls or None)
         print(f"  Attempt {attempt}: {candidate['title']}")
         print(f"  🔗 {candidate['url']}")
 
-        if is_video_available(candidate["url"]):
+        metadata = fetch_video_metadata(candidate["url"])
+        if metadata:
             print("  ✅ Video verified as available")
+            claude_title = candidate["title"]
+            candidate["title"] = metadata["title"]
+            candidate["channel"] = metadata["channel"]
+
+            if not _titles_match(claude_title, metadata["title"]):
+                print(f"  🔄 Title mismatch — regenerating description")
+                print(f"     Claude: {claude_title}")
+                print(f"     YouTube: {metadata['title']}")
+                desc = regenerate_description(metadata["title"], metadata["channel"], category)
+                candidate["one_liner"] = desc["one_liner"]
+                candidate["why_watch"] = desc["why_watch"]
+
             excluded_urls.append(candidate["url"])
             return candidate
 
